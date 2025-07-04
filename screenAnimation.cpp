@@ -20,7 +20,7 @@ int xDirection = 1;
 int yDirection = 1;
 const int screenWidth = 320;
 const int screenHeight = 240;
-const int textSpeed = 5;
+const int textSpeed = 17;
 
 void drawStillText() {
   int upperTextWidth = upperText.length() * 30;
