@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <Arduino.h>
 #include <Servo.h>
 #include <SoftwareSerial.h>
@@ -6,59 +7,27 @@
 #include <Adafruit_ILI9341.h>
 #include <SerialMP3Player.h>
 
+Servo servo1; 
+Servo servo2; 
+SoftwareSerial bluetooth(10, 11);
+const int servoPin1 = 8;
+const int servoPin2 = 9;
+int currentPos = 0; 
+int targetPos = 0;
+
+#define MP3_RX A4
+#define MP3_TX A5
+SerialMP3Player mp3(MP3_RX, MP3_TX);
+int currentVolume = 20; 
+
 #define TFT_CS   4
 #define TFT_DC   3
 #define TFT_RST  2
 #define TFT_MOSI 5
 #define TFT_SCK  12
-
-#define MP3_RX A4
-#define MP3_TX A5
-
-#define LED_STRIP_PIN 13
-
 Adafruit_ILI9341 lcd = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCK, TFT_RST);
-Servo servo1; 
-Servo servo2; 
-SoftwareSerial bluetooth(10, 11);
-SerialMP3Player mp3(MP3_RX, MP3_TX);
-const int servo1Pin = 9;
-const int servo2Pin = 8;
-const int trigPin = 7;
-const int echoPin = 6;
-const float distanceThreshold = 10.0;
 
-const int servo1OpenAngle = 180;
-const int servo1CloseAngle = 0;
-const int servo2OpenAngle = 180;
-const int servo2CloseAngle = 0;
-
-const int LDR_PIN = A0;
-const int RED_PIN = A1;
-const int GREEN_PIN = A2;
-const int BLUE_PIN = A3;
-const int LIGHT_THRESHOLD = 200;
-
-const int COLORS[][3] = {
-  {LOW, HIGH, HIGH},
-  {HIGH, LOW, HIGH},
-  {HIGH, HIGH, LOW},
-};
-const int FIXED_COLORS[][3] = {
-  {LOW, HIGH, HIGH},
-  {HIGH, LOW, HIGH},
-  {HIGH, HIGH, LOW},
-};
-const int NUM_COLORS = sizeof(COLORS) / sizeof(COLORS[0]);
-int currentColor = 0;
-unsigned long previousMillis = 0;
-const unsigned long colorInterval = 1000;
-String rgbMode = "cycle";
-
-String ledStripMode = "auto";
-
-bool printMode = false;
-String animationMode = "still";
+String animationMode = "animated";
 String upperText = "AGAM'S";
 String bottomText = "HOUSE";
 int xPos = 0;
@@ -67,93 +36,40 @@ int xDirection = 1;
 int yDirection = 1;
 const int screenWidth = 320;
 const int screenHeight = 240;
-const int textSpeed = 5;
-int cursorY = 10;
-static String lastAnimationMode = "";
-static String lastUpperText = "";
-static String lastBottomText = "";
+const int textSpeed = 17;
 
-void showColor(int redState, int greenState, int blueState);
-void drawStillText();
-void controlLedStrip(int lightValue);
+const int LDR_PIN = A0;
+const int RED_PIN = A1;
+const int GREEN_PIN = A2;
+const int BLUE_PIN = A3;
+const int LED_STRIP_PIN = 13;
+const int LIGHT_THRESHOLD = 200;
+const int COLORS[][3] = {
+  {LOW, HIGH, HIGH},
+  {HIGH, LOW, HIGH}, 
+  {HIGH, HIGH, LOW},
+};
+const int NUM_COLORS = sizeof(COLORS) / sizeof(COLORS[0]);
+int currentColor = 0;
+unsigned long previousMillis = 0;
+const unsigned long colorInterval = 1000;
+String ledStripMode = "auto";
+String rgbMode = "cycle";
 
-void setup() {
-  servo1.attach(servo1Pin);  
-  servo2.attach(servo2Pin);  
-  bluetooth.begin(9600);    
-  Serial.begin(9600);      
-  pinMode(trigPin, OUTPUT); 
-  pinMode(echoPin, INPUT);  
-  pinMode(RED_PIN, OUTPUT);
-  pinMode(GREEN_PIN, OUTPUT);
-  pinMode(BLUE_PIN, OUTPUT);
-  pinMode(LED_STRIP_PIN, OUTPUT);
-  digitalWrite(LED_STRIP_PIN, LOW);
-  mp3.begin(9600);
-  delay(500);
-  mp3.setVol(20);
-  delay(100);
-  servo1.write(servo1CloseAngle); 
-  servo2.write(servo2CloseAngle); 
-  showColor(HIGH, HIGH, HIGH); 
-  lcd.begin();                    
-  lcd.setRotation(3);
-  lcd.fillScreen(ILI9341_BLACK);  
-  drawStillText();
-  Serial.println("Bluetooth Ready - Send 'open', 'close', 'isopen', number for MP3, 'animated', 'still', 'print', 'upper:<text>', 'bottom:<text>', 'on', 'off', 'auto', 'red', 'green', 'blue', 'cycle'");
-}
+const int trigPin = 7; 
+const int echoPin = 6; 
+const float DETECTION_DISTANCE = 10.0; 
+unsigned long lastUltrasonicCheck = 0;
+const unsigned long ULTRASONIC_INTERVAL = 500; 
 
-float getDistance() {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  long duration = pulseIn(echoPin, HIGH);
-  float distance = duration * 0.034 / 2;
-  return distance;
-}
-
-bool isDoorClosed() {
-  float distance = getDistance();
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
-  if (printMode) {
+void printToSerialAndTFT(String message) {
+  Serial.println(message);
+  if (animationMode == "print") {
     lcd.fillScreen(ILI9341_BLACK);
-    cursorY = 10;
+    lcd.setCursor(0, 0);
     lcd.setTextSize(2);
-    lcd.setTextColor(ILI9341_GREEN);
-    lcd.setCursor(10, cursorY);
-    lcd.print("Distance: ");
-    lcd.print(distance);
-    lcd.println(" cm");
-    cursorY += 20;
-  }
-  return distance <= distanceThreshold;
-}
-
-void showColor(int redState, int greenState, int blueState) {
-  digitalWrite(RED_PIN, redState);
-  digitalWrite(GREEN_PIN, greenState);
-  digitalWrite(BLUE_PIN, blueState);
-}
-
-void controlLedStrip(int lightValue) {
-  if (ledStripMode == "on") {
-    digitalWrite(LED_STRIP_PIN, HIGH);
-    Serial.println("LED Strip: On");
-  } else if (ledStripMode == "off") {
-    digitalWrite(LED_STRIP_PIN, LOW);
-    Serial.println("LED Strip: Off");
-  } else {
-    if (lightValue > LIGHT_THRESHOLD) {
-      digitalWrite(LED_STRIP_PIN, HIGH);
-      Serial.println("LED Strip: On (auto, dark)");
-    } else {
-      digitalWrite(LED_STRIP_PIN, LOW);
-      Serial.println("LED Strip: Off (auto, bright)");
-    }
+    lcd.setTextColor(ILI9341_WHITE);
+    lcd.println(message);
   }
 }
 
@@ -163,6 +79,7 @@ void drawStillText() {
   int textWidth = max(upperTextWidth, bottomTextWidth);
   int xCenter = (screenWidth - textWidth) / 2;
   int yCenter = (screenHeight - 120) / 2;
+
   lcd.setCursor(xCenter, yCenter);
   lcd.setTextSize(5);
   for (int i = 0; i < (int)upperText.length(); i++) {
@@ -173,246 +90,257 @@ void drawStillText() {
   lcd.setTextSize(4);
   lcd.setTextColor(ILI9341_WHITE);
   lcd.print(bottomText);
-  Serial.println("Still mode: Text drawn centered");
+  printToSerialAndTFT("Still mode: Text drawn centered");
 }
 
-void displayAnimation() {
-  lcd.setCursor(xPos, yPos);
-  lcd.setTextSize(5);
-  for (int i = 0; i < (int)upperText.length(); i++) {
-    lcd.setTextColor(i % 2 == 0 ? ILI9341_WHITE : ILI9341_CYAN);
-    lcd.print(upperText[i]);
+void moveServosSmoothly(int from, int to) {
+  int step = (from < to) ? 1 : -1;
+  for (int pos = from; pos != to; pos += step) {
+    servo1.write(pos);
+    servo2.write(180 - pos);
+    delay(10);
   }
-  lcd.setCursor(xPos, yPos + 80);
-  lcd.setTextSize(4);
-  lcd.setTextColor(ILI9341_WHITE);
-  lcd.print(bottomText);
-  xPos += xDirection * textSpeed;
-  yPos += yDirection * textSpeed;
-  int upperTextWidth = upperText.length() * 30;
-  if (xPos >= screenWidth - upperTextWidth) {
-    xDirection = -1;
-    Serial.println("Hit right edge, xDirection changed to left");
-  } else if (xPos <= 0) {
-    xDirection = 1;
-    Serial.println("Hit left edge, xDirection changed to right");
-  }
-  if (yPos >= screenHeight - 120) {
-    yDirection = -1;
-    Serial.println("Hit bottom edge, yDirection changed to up");
-  } else if (yPos <= 0) {
-    yDirection = 1;
-    Serial.println("Hit top edge, yDirection changed to down");
-  }
-  Serial.print("xPos: ");
-  Serial.print(xPos);
-  Serial.print(" | yPos: ");
-  Serial.print(yPos);
-  Serial.print(" | xDirection: ");
-  Serial.print(xDirection);
-  Serial.print(" | yDirection: ");
-  Serial.println(yDirection);
+  servo1.write(to);
+  servo2.write(180 - to);
+  currentPos = to;
 }
 
-void displayAndPrint(String message, uint16_t color) {
-  Serial.println(message);
-  if (printMode) {
-    lcd.setTextColor(color);
-    lcd.setCursor(10, cursorY);
-    lcd.println(message);
-    cursorY += 20;
-    if (cursorY > 280) {
-      lcd.fillScreen(ILI9341_BLACK);
-      cursorY = 10;
-    }
+void showColor(int redState, int greenState, int blueState) {
+  digitalWrite(RED_PIN, redState);
+  digitalWrite(GREEN_PIN, greenState);
+  digitalWrite(BLUE_PIN, blueState);
+}
+
+float getDistance() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  long duration = pulseIn(echoPin, HIGH);
+  float distance = duration * 0.034 / 2;
+  return distance;
+}
+
+bool checkMP3Status() {
+  mp3.qStatus(); 
+  delay(100);
+  return true; 
+}
+
+void playTrack(int track) {
+  if (checkMP3Status()) {
+    mp3.stop(); 
+    delay(100); 
+    mp3.play(track);
+    printToSerialAndTFT("Playing track " + String(track));
+  } else {
+    printToSerialAndTFT("Error: MP3 module not responding");
   }
+}
+
+void setup() {
+  Serial.begin(9600);
+  bluetooth.begin(9600);
+  
+  mp3.begin(9600);
+  delay(500);
+  mp3.setVol(currentVolume);
+  if (checkMP3Status()) {
+    printToSerialAndTFT("MP3 module initialized successfully");
+  } else {
+    printToSerialAndTFT("Error: MP3 module initialization failed");
+  }
+  
+  servo1.attach(servoPin1);
+  servo2.attach(servoPin2);
+  servo1.write(0);
+  servo2.write(180);
+  currentPos = 0;
+
+  lcd.begin();
+  lcd.setRotation(3);
+  lcd.fillScreen(ILI9341_BLACK);
+
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
+  pinMode(LED_STRIP_PIN, OUTPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  showColor(HIGH, HIGH, HIGH);
+  digitalWrite(LED_STRIP_PIN, LOW);
+
+  drawStillText();
+  printToSerialAndTFT("Bluetooth Ready - Send commands");
 }
 
 void loop() {
-  if (!printMode) {
-    if (animationMode == "still" && (animationMode != lastAnimationMode || upperText != lastUpperText || bottomText != lastBottomText)) {
-      lcd.fillScreen(ILI9341_BLACK);
-      drawStillText();
-      lastAnimationMode = animationMode;
-      lastUpperText = upperText;
-      lastBottomText = bottomText;
-    } else if (animationMode == "animated") {
-      lcd.fillScreen(ILI9341_BLACK);
-      displayAnimation();
-      lastAnimationMode = animationMode;
-      lastUpperText = upperText;
-      lastBottomText = bottomText;
-    }
-  }
-  if (bluetooth.available()) {  
-    String command = bluetooth.readStringUntil('\n'); 
-    command.trim();
-    if (command.equalsIgnoreCase("isopen")) {
-      bool doorClosed = isDoorClosed();
-      String message = doorClosed ? "Door is closed" : "Door is open";
-      displayAndPrint(message, ILI9341_CYAN);
-    } else if (command.equalsIgnoreCase("on")) {
-      ledStripMode = "on";
-      digitalWrite(LED_STRIP_PIN, HIGH);
-      Serial.println("LED Strip: On");
-      if (printMode) {
-        displayAndPrint("LED Strip: On", ILI9341_WHITE);
-      }
-    } else if (command.equalsIgnoreCase("off")) {
-      ledStripMode = "off";
-      digitalWrite(LED_STRIP_PIN, LOW);
-      Serial.println("LED Strip: Off");
-      if (printMode) {
-        displayAndPrint("LED Strip: Off", ILI9341_WHITE);
-      }
-    } else if (command.equalsIgnoreCase("auto")) {
-      ledStripMode = "auto";
-      Serial.println("LED Strip: Auto mode");
-      if (printMode) {
-        displayAndPrint("LED Strip: Auto mode", ILI9341_WHITE);
-      }
-    } else if (command.equalsIgnoreCase("red")) {
-      rgbMode = "red";
-      Serial.println("RGB LED: Set to red");
-      if (printMode) {
-        displayAndPrint("RGB LED: Set to red", ILI9341_RED);
-      }
-    } else if (command.equalsIgnoreCase("green")) {
-      rgbMode = "green";
-      Serial.println("RGB LED: Set to green");
-      if (printMode) {
-        displayAndPrint("RGB LED: Set to green", ILI9341_GREEN);
-      }
-    } else if (command.equalsIgnoreCase("blue")) {
-      rgbMode = "blue";
-      Serial.println("RGB LED: Set to blue");
-      if (printMode) {
-        displayAndPrint("RGB LED: Set to blue", ILI9341_BLUE);
-      }
-    } else if (command.equalsIgnoreCase("cycle")) {
-      rgbMode = "cycle";
-      Serial.println("RGB LED: Set to cycle");
-      if (printMode) {
-        displayAndPrint("RGB LED: Set to cycle", ILI9341_YELLOW);
-      }
-    } else if (command.equalsIgnoreCase("animated")) {
-      animationMode = "animated";
-      printMode = false;
-      Serial.println("Switched to animated mode");
-      lcd.fillScreen(ILI9341_BLACK);
-    } else if (command.equalsIgnoreCase("still")) {
-      animationMode = "still";
-      printMode = false;
-      Serial.println("Switched to still mode");
-      lcd.fillScreen(ILI9341_BLACK);
-    } else if (command.equalsIgnoreCase("print")) {
-      printMode = true;
-      Serial.println("Switched to print mode");
-      lcd.fillScreen(ILI9341_BLACK);
-      cursorY = 10;
-    } else if (command.startsWith("upper:")) {
-      upperText = command.substring(6);
-      Serial.println("Upper text set to: " + upperText);
-      if (!printMode) {
-        lcd.fillScreen(ILI9341_BLACK);
-        if (animationMode == "still") {
-          drawStillText();
+  static String btCommand = ""; 
+  bluetooth.listen(); 
+
+  while (bluetooth.available()) {
+    char c = bluetooth.read();
+    Serial.print("BT> "); Serial.println(c);
+    
+    if (c == '\r' || c == '\n') {
+      if (btCommand.length() > 0) {
+        btCommand.trim();
+        printToSerialAndTFT("Received: " + btCommand);
+
+        if (btCommand == "open") {
+          targetPos = 0;
+          printToSerialAndTFT("Opening...");
+          moveServosSmoothly(currentPos, targetPos);
+          delay(500);
+          playTrack(1);
+        } else if (btCommand == "close") {
+          targetPos = 180;
+          printToSerialAndTFT("Closing...");
+          moveServosSmoothly(currentPos, targetPos);
+          delay(500); 
+          playTrack(3); 
+        } else if (btCommand == "still") {
+          animationMode = "still";
+        } else if (btCommand == "animate") {
+          animationMode = "animated";
+        } else if (btCommand == "print") {
+          animationMode = "print";
+        } else if (btCommand == "on") {
+          ledStripMode = "on";
+          digitalWrite(LED_STRIP_PIN, HIGH);
+        } else if (btCommand == "off") {
+          ledStripMode = "off";
+          digitalWrite(LED_STRIP_PIN, LOW);
+          showColor(HIGH, HIGH, HIGH);
+        } else if (btCommand == "auto") {
+          ledStripMode = "auto";
+        } else if (btCommand == "red") {
+          rgbMode = "red";
+        } else if (btCommand == "green") {
+          rgbMode = "green";
+        } else if (btCommand == "blue") {
+          rgbMode = "blue";
+        } else if (btCommand == "cycle") {
+          rgbMode = "cycle";
+        } else if (btCommand == "play") {
+          playTrack(1);
+        } else if (btCommand == "stop") {
+          mp3.stop();
+          printToSerialAndTFT("Stopped playback");
+        } else if (btCommand.startsWith("vol")) {
+          String volStr = btCommand.substring(3);
+          if (volStr.length() > 0 && (volStr.toInt() > 0 || volStr == "0")) {
+            int vol = volStr.toInt();
+            if (vol >= 0 && vol <= 30) {
+              currentVolume = vol;
+              mp3.setVol(currentVolume);
+              printToSerialAndTFT("Volume set to " + String(currentVolume));
+            } else {
+              printToSerialAndTFT("Invalid volume: " + volStr + " (must be 0-30)");
+            }
+          } else {
+            printToSerialAndTFT("Invalid volume command: " + btCommand);
+          }
+        } else if (btCommand.startsWith("+")) {
+          String volStr = btCommand.substring(1);
+          if (volStr.length() > 0 && volStr.toInt() > 0) {
+            int volChange = volStr.toInt();
+            currentVolume += volChange;
+            if (currentVolume > 30) currentVolume = 30;
+            if (currentVolume < 0) currentVolume = 0;
+            mp3.setVol(currentVolume);
+            printToSerialAndTFT("Volume increased to " + String(currentVolume));
+          } else {
+            printToSerialAndTFT("Invalid volume increase command: " + btCommand);
+          }
+        } else if (btCommand.startsWith("-")) {
+          String volStr = btCommand.substring(1);
+          if (volStr.length() > 0 && volStr.toInt() > 0) {
+            int volChange = volStr.toInt();
+            currentVolume -= volChange;
+            if (currentVolume > 30) currentVolume = 30;
+            if (currentVolume < 0) currentVolume = 0;
+            mp3.setVol(currentVolume);
+            printToSerialAndTFT("Volume decreased to " + String(currentVolume));
+          } else {
+            printToSerialAndTFT("Invalid volume decrease command: " + btCommand);
+          }
+        } else if (btCommand.toInt() > 0) {
+          int track = btCommand.toInt();
+          playTrack(track);
+        } else {
+          printToSerialAndTFT("Unknown command: " + btCommand);
         }
-      }
-      lastUpperText = upperText;
-    } else if (command.startsWith("bottom:")) {
-      bottomText = command.substring(7);
-      Serial.println("Bottom text set to: " + bottomText);
-      if (!printMode) {
-        lcd.fillScreen(ILI9341_BLACK);
-        if (animationMode == "still") {
-          drawStillText();
-        }
-      }
-      lastBottomText = bottomText;
-    } else if (int trackNumber = command.toInt()) {
-      if (trackNumber > 0 && command == String(trackNumber)) {
-        mp3.play(trackNumber);
-        String message = "Playing track " + String(trackNumber);
-        displayAndPrint(message, ILI9341_MAGENTA);
-      } else {
-        displayAndPrint("Error: Invalid track number", ILI9341_RED);
+
+        btCommand = ""; 
       }
     } else {
-      bool doorClosed = isDoorClosed();
-      if (command.equalsIgnoreCase("open")) {
-        if (doorClosed) {
-          servo1.write(servo1OpenAngle); 
-          servo2.write(servo2OpenAngle); 
-          String message = "Servos to open (S1: " + String(servo1OpenAngle) + 
-                          ", S2: " + String(servo2OpenAngle) + ")";
-          displayAndPrint(message, ILI9341_GREEN);
-        } else {
-          displayAndPrint("Error: Door already open", ILI9341_RED);
-        }
-      } else if (command.equalsIgnoreCase("close")) {
-        if (!doorClosed) {
-          servo1.write(servo1CloseAngle); 
-          servo2.write(servo2CloseAngle); 
-          String message = "Servos to closed (S1: " + String(servo1CloseAngle) + 
-                          ", S2: " + String(servo2CloseAngle) + ")";
-          displayAndPrint(message, ILI9341_GREEN);
-        } else {
-          displayAndPrint("Error: Door already closed", ILI9341_RED);
-        }
-      } else {
-        displayAndPrint("Error: Use 'open'/'close'/'isopen', number, 'animated'/'still'/'print', 'upper:<text>'/'bottom:<text>', 'on'/'off'/'auto', 'red'/'green'/'blue'/'cycle'", ILI9341_RED);
-      }
+      btCommand += c; 
     }
   }
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastUltrasonicCheck >= ULTRASONIC_INTERVAL) {
+    float distance = getDistance();
+    if (distance > 0 && distance <= DETECTION_DISTANCE) {
+      printToSerialAndTFT("Movement detected at " + String(distance) + " cm, playing track 2");
+      playTrack(2);
+    }
+    lastUltrasonicCheck = currentMillis;
+  }
+
   int lightValue = analogRead(LDR_PIN);
-  String lightMessage = "Light: " + String(lightValue);
-  displayAndPrint(lightMessage, ILI9341_CYAN);
-  controlLedStrip(lightValue);
-  if (lightValue > LIGHT_THRESHOLD) {
-    unsigned long currentMillis = millis();
-    if (rgbMode == "cycle") {
+  bool ledStripState = digitalRead(LED_STRIP_PIN);
+
+  if (ledStripMode == "auto") {
+    if (lightValue > LIGHT_THRESHOLD && !ledStripState) {
+      digitalWrite(LED_STRIP_PIN, HIGH);
+    } else if (lightValue <= LIGHT_THRESHOLD && ledStripState) {
+      digitalWrite(LED_STRIP_PIN, LOW);
+      showColor(HIGH, HIGH, HIGH);
+    }
+  }
+
+  if (ledStripState) {
+    if (rgbMode == "red") showColor(LOW, HIGH, HIGH);
+    else if (rgbMode == "green") showColor(HIGH, LOW, HIGH);
+    else if (rgbMode == "blue") showColor(HIGH, HIGH, LOW);
+    else if (rgbMode == "cycle") {
       if (currentMillis - previousMillis >= colorInterval) {
         previousMillis = currentMillis;
-        showColor(
-          COLORS[currentColor][0],
-          COLORS[currentColor][1],
-          COLORS[currentColor][2]
-        );
-        String colorMessage;
-        switch (currentColor) {
-          case 0: colorMessage = "RGB: Red"; break;
-          case 1: colorMessage = "RGB: Green"; break;
-          case 2: colorMessage = "RGB: Blue/Yellow"; break;
-        }
-        displayAndPrint(colorMessage, ILI9341_YELLOW);
+        showColor(COLORS[currentColor][0], COLORS[currentColor][1], COLORS[currentColor][2]);
         currentColor = (currentColor + 1) % NUM_COLORS;
-      }
-    } else if (rgbMode == "red") {
-      showColor(FIXED_COLORS[0][0], FIXED_COLORS[0][1], FIXED_COLORS[0][2]);
-      if (currentMillis - previousMillis >= colorInterval) {
-        previousMillis = currentMillis;
-        displayAndPrint("RGB: Red", ILI9341_YELLOW);
-      }
-    } else if (rgbMode == "green") {
-      showColor(FIXED_COLORS[1][0], FIXED_COLORS[1][1], FIXED_COLORS[1][2]);
-      if (currentMillis - previousMillis >= colorInterval) {
-        previousMillis = currentMillis;
-        displayAndPrint("RGB: Green", ILI9341_YELLOW);
-      }
-    } else if (rgbMode == "blue") {
-      showColor(FIXED_COLORS[2][0], FIXED_COLORS[2][1], FIXED_COLORS[2][2]);
-      if (currentMillis - previousMillis >= colorInterval) {
-        previousMillis = currentMillis;
-        displayAndPrint("RGB: Blue", ILI9341_YELLOW);
       }
     }
   } else {
     showColor(HIGH, HIGH, HIGH);
-    displayAndPrint("RGB: Off", ILI9341_WHITE);
     currentColor = 0;
   }
-  if (!printMode && animationMode == "animated") {
-    delay(30);
+
+  if (animationMode == "still") {
+    drawStillText();
+  } else if (animationMode == "animated") {
+    lcd.fillScreen(ILI9341_BLACK);
+    lcd.setCursor(xPos, yPos);
+    lcd.setTextSize(5);
+    for (int i = 0; i < (int)upperText.length(); i++) {
+      lcd.setTextColor(i % 2 == 0 ? ILI9341_WHITE : ILI9341_CYAN);
+      lcd.print(upperText[i]);
+    }
+    lcd.setCursor(xPos, yPos + 80);
+    lcd.setTextSize(4);
+    lcd.setTextColor(ILI9341_WHITE);
+    lcd.print(bottomText);
+
+    xPos += xDirection * textSpeed;
+    yPos += yDirection * textSpeed;
+
+    int upperTextWidth = upperText.length() * 30;
+    if (xPos >= screenWidth - upperTextWidth || xPos <= 0) xDirection *= -1;
+    if (yPos >= screenHeight - 120 || yPos <= 0) yDirection *= -1;
   }
+
+  delay(30); 
 }
